@@ -1,0 +1,104 @@
+// Firestore Security Rules for Repair Shop Management System
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isStaff() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'staff' ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+    
+    // Validate customer data
+    function isValidCustomer(customer) {
+      return customer.size() > 0 &&
+        'name' in customer && customer.name is string && customer.name.size() > 0 &&
+        'phone' in customer && customer.phone is string && customer.phone.size() > 0 &&
+        (!('email' in customer) || customer.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')) &&
+        'address' in customer;
+    }
+    
+    // Validate repair data
+    function isValidRepair(repair) {
+      return repair.size() > 0 &&
+        'customer_id' in repair && repair.customer_id is string && repair.customer_id.size() > 0 &&
+        'device_type' in repair && repair.device_type is string && repair.device_type.size() > 0 &&
+        'brand' in repair && repair.brand is string && repair.brand.size() > 0 &&
+        'model' in repair && repair.model is string && repair.model.size() > 0 &&
+        'status' in repair && repair.status is string &&
+        (repair.status == 'pending' || repair.status == 'in-progress' || repair.status == 'completed') &&
+        'cost' in repair && repair.cost is number && repair.cost >= 0 &&
+        'tasks' in repair && repair.tasks is list && repair.tasks.size() > 0;
+    }
+    
+    // Validate product data
+    function isValidProduct(product) {
+      return product.size() > 0 &&
+        'name' in product && product.name is string && product.name.size() > 0 &&
+        'category' in product && product.category is string && product.category.size() > 0 &&
+        'quantity' in product && product.quantity is number && product.quantity >= 0 &&
+        'price' in product && product.price is number && product.price >= 0 &&
+        'supplier' in product && product.supplier is string && product.supplier.size() > 0;
+    }
+    
+    // Validate technician data
+    function isValidTechnician(technician) {
+      return technician.size() > 0 &&
+        'name' in technician && technician.name is string && technician.name.size() > 0 &&
+        'specialization' in technician && technician.specialization is list && technician.specialization.size() > 0 &&
+        'availability' in technician && technician.availability is bool &&
+        'phone' in technician && technician.phone is string && technician.phone.size() > 0 &&
+        (!('email' in technician) || technician.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'));
+    }
+    
+    // Customers collection
+    match /customers/{customerId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaff() && isValidCustomer(request.resource.data);
+      allow update: if isStaff() && isValidCustomer(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    // Repairs collection
+    match /repairs/{repairId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaff() && isValidRepair(request.resource.data);
+      allow update: if isStaff() && isValidRepair(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    // Products collection
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow create: if isStaff() && isValidProduct(request.resource.data);
+      allow update: if isStaff() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    // Technicians collection
+    match /technicians/{technicianId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidTechnician(request.resource.data);
+      allow update: if isAdmin() && isValidTechnician(request.resource.data);
+      allow delete: if isAdmin();
+    }
+    
+    // Users collection (for role-based access)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+    }
+  }
+}
